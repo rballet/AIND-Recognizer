@@ -77,7 +77,30 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_logL = float("Inf")
+        best_model = None
+
+        # of features
+        d = len(self.X[0])
+
+        # of data points
+        N = len(self.X)
+
+        for num_states in range(self.min_n_components, self.max_n_components+1):
+            try:
+                model = self.base_model(num_states)
+                logL = model.score(self.X, self.lengths)
+
+                # of parameters
+                p = num_states**2+2*d*num_states - 1
+
+                bic = -2*logL + p*np.log(N)
+
+                if bic < best_logL:
+                    best_model, best_logL = model, bic
+            except:
+                continue
+        return best_model
 
 
 class SelectorDIC(ModelSelector):
@@ -93,7 +116,29 @@ class SelectorDIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_logL = -float("Inf")
+        best_model = None
+        logL_other = []
+
+        for num_states in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                model = self.base_model(num_states)
+                for word in self.words:
+                    if word == self.this_word:
+                        logL = model.score(self.X, self.lengths)
+                    else:
+                        X, lengths = self.hwords[word]
+                        logL_other.append(model.score(X, lengths))
+
+                logL_avg = np.mean(logL_other)
+
+                dic = logL - logL_avg
+
+                if dic > best_logL:
+                    best_model, best_logL = model, dic
+            except:
+                continue
+        return best_model
 
 
 class SelectorCV(ModelSelector):
@@ -104,5 +149,25 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        best_logL = -float('Inf')
+        best_model = None
+        score = []
+        if len(self.sequences) > 1:
+            n_folds = min(len(self.sequences),3)
+            split_method = KFold(n_splits=n_folds)
+            for num_states in range(self.min_n_components,self.max_n_components+1):
+                try:
+                    for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                        self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
+                        X_test, lengths_test = combine_sequences(cv_test_idx, self.sequences)
+                        model = self.base_model(num_states)
+                        score.append(model.score(X_test, lengths_test))
+                    avg_score = np.mean(score)
+                    if avg_score > best_logL:
+                        best_model, best_logL = model, avg_score
+                    score = []
+                except:
+                    continue
+        else:
+            best_model = self.base_model(3)
+        return best_model
